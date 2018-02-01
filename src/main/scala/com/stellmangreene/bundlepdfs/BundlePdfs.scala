@@ -27,65 +27,88 @@ object BundlePdfs extends App {
 
   val fuzzyScore = new FuzzyScore(Locale.ENGLISH)
 
-  folders.foreach(processFolder)
+  val files: Seq[File] = folders.map(getFilesFromFolder).flatten
+
+  val fileRegex = "^(.*)scan_(.*)\\.txt$".r
+
+  processFiles(files)
 
   /** calculate the average for a set of scores */
   def average(scores: Seq[Integer]) =
     if (scores.size == 0) 0
     else scores.foldRight(1)((i, j) => i + j) / scores.size
 
-  /** read a folder and  */
-  def processFolder(folder: File) = {
-
-    var currentBundle = Seq[File]()
-
+  /** extract the files from a folder */
+  def getFilesFromFolder(folder: File): Seq[File] = {
     folder.children
       .toSeq
       .sortBy(_.name)
-      .foreach(file => {
-        if (file.name.endsWith(".txt")) {
-          val fileContents = file.contentAsString
-
-          if (conf.testFirstPageLines || conf.testSkipPageLines) {
-            testFile(file, fileContents)
-
-          } else {
-
-            if (isFirstPage(file, fileContents)) {
-              if (!currentBundle.isEmpty) {
-                generateBundle(currentBundle)
-              }
-
-              currentBundle = Seq(file)
-
-            } else {
-              currentBundle ++= Seq(file)
-
-            }
-
-          }
-        }
+      .map(file => {
+        if (file.isRegularFile && file.name.endsWith(".txt")) {
+          Some(file)
+        } else None
       })
+      .filter(_.isDefined)
+      .map(_.get)
+  }
+
+  /** read a folder and  */
+  def processFiles(files: Seq[File]) = {
+
+    var currentBundle = Seq[File]()
+
+    files.foreach(file => {
+      val fileContents = file.contentAsString
+
+      if (conf.testFirstPageLines || conf.testSkipPageLines) {
+        testFile(file, fileContents)
+
+      } else {
+
+        if (isFirstPage(file, fileContents)) {
+          if (!currentBundle.isEmpty) {
+            generateBundle(currentBundle)
+          }
+
+          currentBundle = Seq(file)
+
+        } else {
+          currentBundle ++= Seq(file)
+
+        }
+
+      }
+    })
   }
 
   /** generate a bundle */
   def generateBundle(bundle: Seq[File]) = {
 
-    val filename = s"${findId(bundle.last)}.pdf"
+    val filename = s"${findId(bundle.last)}.tif"
 
     if (conf.testBundles) {
       println(bundle.size, bundle.head.pathAsString.split("/").dropRight(1).last, filename, bundle.map(_.name))
 
     } else {
-
-      //TODO: Generate the bundle script
-
+      print("tiffcp ")
+      print(bundle.map(getTifFilename).mkString(" "))
+      println(s" $filename")
+      
+      println(s"tiff2pdf $filename")
     }
 
   }
 
+  /** extract a tif filename to include in a command line from a File */
+  def getTifFilename(f: File) = {
+    val m = fileRegex.findFirstMatchIn(f.pathAsString)
+    if (m.isEmpty)
+      throw new IllegalStateException(s"Invalid filename: ${f.pathAsString}")
+    s"'${m.get.group(1).replaceAll("'", "\\'")}${m.get.group(2)}.tif'"
+  }
+
   var unknownIdCount = 0
-  
+
   /**
    * find the ID in a file
    */
