@@ -11,7 +11,7 @@ object BundlePdfs extends App {
 
   val conf = new Conf(args) // Note: This line also works for "object Main extends App"
 
-  val folders = conf.folders.map(_.toFile)
+  val folders = conf.folders.map(conf.parentFolder / _)
 
   val timestamp = new SimpleDateFormat("yy-mm-dd_hh-mm-ss").format(Calendar.getInstance.getTime)
 
@@ -34,9 +34,12 @@ object BundlePdfs extends App {
   println(s"Writing CSV log to ${csvFile.pathAsString}")
 
   scriptFile.appendLines("#!/bin/sh")
-  scriptFile.appendLines(s"# created by bundle_pdfs $timestamp")
+  scriptFile.appendLines(s"# created by bundle_pdfs <https://github.com/andrewstellman/bundle-pdfs> $timestamp")
+  scriptFile.appendLines("")
+  scriptFile.appendLines(s"""cd "${conf.parentFolder.pathAsString}"""")
+  scriptFile.appendLines("")
 
-  csvFile.appendLines(""""pdf_filename","page_number","id","image_filename"""")
+  csvFile.appendLines(""""pdf_filename","page_number","image_filename","id"""")
 
   val notFound = folders.filter(!_.exists)
   if (!notFound.isEmpty) {
@@ -61,7 +64,7 @@ object BundlePdfs extends App {
 
   processFiles(files)
 
-  scriptFile.appendLines(s"""echo "wrote log to ${conf.configName}_bundle_pdfs.log""")
+  scriptFile.appendLines(s"""echo "wrote log to ${conf.configName}_bundle_pdfs.log"""")
 
   /** calculate the average for a set of scores */
   def average(scores: Seq[Integer]) =
@@ -126,7 +129,7 @@ object BundlePdfs extends App {
       csvFile.appendLines(s""""$pdfFilename",1,"${textFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
       bundle.drop(1).dropRight(1).zipWithIndex.foreach(e => {
         val (file, index) = e
-        csvFile.appendLines(s""""$pdfFilename",${index + 1},${textFilename(file)}","${findId(file).getOrElse("")}"""")
+        csvFile.appendLines(s""""$pdfFilename",${index + 1},"${textFilename(file)}","${findId(file).getOrElse("")}"""")
       })
       csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${textFilename(bundle.last)}","${findId(bundle.last).getOrElse("")}"""")
     }
@@ -137,8 +140,6 @@ object BundlePdfs extends App {
 
     scriptFile.appendLines(s"""echo "generating $pdfFilename from ${bundle.length} files"""")
     scriptFile.appendLines(s"""echo "generating $pdfFilename from ${bundle.length} files" >> ${conf.configName}_bundle_pdfs.log""")
-
-    scriptFile.appendLines(s"""cd "${bundle.head.pathAsString.split("/").dropRight(1).mkString("/")}"""")
 
     scriptFile.appendText("tiffcp ")
     scriptFile.appendText(bundle.map(getTifFilename).mkString(" "))
@@ -155,7 +156,7 @@ object BundlePdfs extends App {
     if (m.isEmpty)
       throw new IllegalStateException(s"Invalid filename: ${f.pathAsString}")
     //s"'${m.get.group(1).replaceAll("'", "\\'")}${m.get.group(2)}.tif'"
-    s"${m.get.group(2)}.tif"
+    s"${m.get.group(1).split("/").last}/${m.get.group(2)}.tif"
   }
 
   var unknownIdCount = 0

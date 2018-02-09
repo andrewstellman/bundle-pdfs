@@ -77,6 +77,8 @@ an ID list file as the filename
   
   val idsFile = config.getString("ids-file")
 
+  val parentFolder = config.getString("parent-folder").toFile
+  
   val folders = config.getStringList("folders").iterator.asScala.toSeq
   
   val outputFolder = config.getString("output-folder").toFile
