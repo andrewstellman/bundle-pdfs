@@ -2,6 +2,7 @@ package com.stellmangreene.bundlepdfs
 
 import com.typesafe.config.{ Config, ConfigFactory }
 import scala.collection.JavaConverters._
+import better.files._
 
 class Conf(args: Seq[String]) {
 
@@ -9,7 +10,7 @@ class Conf(args: Seq[String]) {
     println("""bundle-pdfs
 read OCR text from TIF files and generate script to bundle into multi-page PDFs
 
-usage: bundle-pdfs --test-first-page-scores --test-skip-page-scores --test-bundles config-name
+usage: bundle-pdfs --test-first-page-scores --test-skip-page-scores config-name
 specify configuration-name to use a section in application.conf
 specify test options to do a dry run and test the scores or bundles
 
@@ -74,10 +75,10 @@ an ID list file as the filename
     printHelpAndExit
   }
   
-  val testBundles = args.contains("--test-bundles")
-
   val idsFile = config.getString("ids-file")
 
   val folders = config.getStringList("folders").iterator.asScala.toSeq
+  
+  val outputFolder = config.getString("output-folder").toFile
 
 }

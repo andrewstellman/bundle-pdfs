@@ -3,12 +3,40 @@ package com.stellmangreene.bundlepdfs
 import org.apache.commons.text.similarity.FuzzyScore
 import java.util.Locale
 import better.files._
+import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.nio.file.attribute.PosixFilePermission
 
 object BundlePdfs extends App {
 
   val conf = new Conf(args) // Note: This line also works for "object Main extends App"
 
   val folders = conf.folders.map(_.toFile)
+
+  val timestamp = new SimpleDateFormat("yy-mm-dd_hh-mm-ss").format(Calendar.getInstance.getTime)
+
+  if (!conf.outputFolder.exists) {
+    conf.outputFolder.createDirectory
+  }
+  
+  val outputFolder = conf.outputFolder / timestamp
+  outputFolder.createDirectory
+  println(s"Writing scripts and logs to $outputFolder")
+
+  val scriptFile = outputFolder / s"${conf.configName}_bundle_pdfs.sh"
+  scriptFile.createFile
+
+  Set(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE).foreach(scriptFile.addPermission)
+  println(s"Writing script to ${scriptFile.pathAsString}")
+
+  val logFile = outputFolder / s"${conf.configName}_bundle_pdfs.csv"
+  logFile.createFile
+  println(s"Writing CSV log to ${logFile.pathAsString}")
+
+  scriptFile.appendLines("#!/bin/sh")
+  scriptFile.appendLines(s"# created by bundle_pdfs $timestamp")
+
+  logFile.appendLines(""""image_filename","page_number","id","pdf_filename"""")
 
   val notFound = folders.filter(!_.exists)
   if (!notFound.isEmpty) {
@@ -84,19 +112,38 @@ object BundlePdfs extends App {
   /** generate a bundle */
   def generateBundle(bundle: Seq[File]) = {
 
-    val filename = s"${findId(bundle.last)}.tif"
+    val filenameBase = generateFilename(bundle.last)
+    val pdfFilename = s"${filenameBase}.pdf"
+    val tifFilename = s"${filenameBase}.tif"
 
-    if (conf.testBundles) {
-      println(bundle.size, bundle.head.pathAsString.split("/").dropRight(1).last, filename, bundle.map(_.name))
+    def textFilename(f: File) = f.pathAsString.split("/").takeRight(2).mkString("/")
+    if (bundle.size == 1) {
+      logFile.appendLines(s""""${textFilename(bundle.head)}",1,"${findId(bundle.head).getOrElse("NO ID FOUND")}","$pdfFilename"""")
 
     } else {
-      print("tiffcp ")
-      print(bundle.map(getTifFilename).mkString(" "))
-      println(s" $filename")
-      
-      println(s"tiff2pdf $filename")
+      logFile.appendLines(s""""${textFilename(bundle.head)}",1,"${findId(bundle.head).getOrElse("")}","$pdfFilename"""")
+      bundle.drop(1).dropRight(1).zipWithIndex.foreach(e => {
+        val (file, index) = e
+        logFile.appendLines(s""""${textFilename(file)}",${index + 1},"${findId(file).getOrElse("")}",""""")
+      })
+      logFile.appendLines(s""""${textFilename(bundle.last)}",${bundle.length},"${findId(bundle.last).getOrElse("")}",""""")
     }
 
+    val filename = s"${findId(bundle.last)}.tif"
+
+    scriptFile.appendLines("")
+    
+    scriptFile.appendLines(s"""echo "generating $pdfFilename from ${bundle.length} files"""")
+
+    scriptFile.appendLines(s"""cd "${bundle.head.pathAsString.split("/").dropRight(1).mkString("/")}"""")
+
+    scriptFile.appendText("tiffcp ")
+    scriptFile.appendText(bundle.map(getTifFilename).mkString(" "))
+    scriptFile.appendLines(s""" "$outputFolder/$tifFilename"""")
+
+    scriptFile.appendLines(s"""tiff2pdf "$outputFolder/$tifFilename" > "$outputFolder/$pdfFilename"""")
+    
+    scriptFile.appendLines("")
   }
 
   /** extract a tif filename to include in a command line from a File */
@@ -104,17 +151,25 @@ object BundlePdfs extends App {
     val m = fileRegex.findFirstMatchIn(f.pathAsString)
     if (m.isEmpty)
       throw new IllegalStateException(s"Invalid filename: ${f.pathAsString}")
-    s"'${m.get.group(1).replaceAll("'", "\\'")}${m.get.group(2)}.tif'"
+    //s"'${m.get.group(1).replaceAll("'", "\\'")}${m.get.group(2)}.tif'"
+    s"${m.get.group(2)}.tif"
   }
 
   var unknownIdCount = 0
 
   /**
-   * find the ID in a file
+   * finds an ID in a file if it exists
    */
-  def findId(file: File): String = {
+  def findId(file: File): Option[String] = {
     val words = file.contentAsString.split("\\s+")
-    words.find(ids.isDefinedAt).getOrElse({
+    words.find(ids.isDefinedAt)
+  }
+
+  /**
+   * returns a filename based on an ID in a file, or unknown_id_* if no ID found
+   */
+  def generateFilename(file: File): String = {
+    findId(file).getOrElse({
       unknownIdCount += 1
       s"unknown_id_$unknownIdCount"
     })
