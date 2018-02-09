@@ -18,8 +18,8 @@ object BundlePdfs extends App {
   if (!conf.outputFolder.exists) {
     conf.outputFolder.createDirectory
   }
-  
-  val outputFolder = conf.outputFolder / timestamp
+
+  val outputFolder = conf.outputFolder / s"${conf.configName}.$timestamp"
   outputFolder.createDirectory
   println(s"Writing scripts and logs to $outputFolder")
 
@@ -29,14 +29,14 @@ object BundlePdfs extends App {
   Set(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE).foreach(scriptFile.addPermission)
   println(s"Writing script to ${scriptFile.pathAsString}")
 
-  val logFile = outputFolder / s"${conf.configName}_bundle_pdfs.csv"
-  logFile.createFile
-  println(s"Writing CSV log to ${logFile.pathAsString}")
+  val csvFile = outputFolder / s"${conf.configName}_bundle_pdfs.csv"
+  csvFile.createFile
+  println(s"Writing CSV log to ${csvFile.pathAsString}")
 
   scriptFile.appendLines("#!/bin/sh")
   scriptFile.appendLines(s"# created by bundle_pdfs $timestamp")
 
-  logFile.appendLines(""""image_filename","page_number","id","pdf_filename"""")
+  csvFile.appendLines(""""pdf_filename","page_number","id","image_filename"""")
 
   val notFound = folders.filter(!_.exists)
   if (!notFound.isEmpty) {
@@ -60,6 +60,8 @@ object BundlePdfs extends App {
   val fileRegex = "^(.*)scan_(.*)\\.txt$".r
 
   processFiles(files)
+
+  scriptFile.appendLines(s"""echo "wrote log to ${conf.configName}_bundle_pdfs.log""")
 
   /** calculate the average for a set of scores */
   def average(scores: Seq[Integer]) =
@@ -118,22 +120,23 @@ object BundlePdfs extends App {
 
     def textFilename(f: File) = f.pathAsString.split("/").takeRight(2).mkString("/")
     if (bundle.size == 1) {
-      logFile.appendLines(s""""${textFilename(bundle.head)}",1,"${findId(bundle.head).getOrElse("NO ID FOUND")}","$pdfFilename"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${textFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
 
     } else {
-      logFile.appendLines(s""""${textFilename(bundle.head)}",1,"${findId(bundle.head).getOrElse("")}","$pdfFilename"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${textFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
       bundle.drop(1).dropRight(1).zipWithIndex.foreach(e => {
         val (file, index) = e
-        logFile.appendLines(s""""${textFilename(file)}",${index + 1},"${findId(file).getOrElse("")}",""""")
+        csvFile.appendLines(s""""$pdfFilename",${index + 1},${textFilename(file)}","${findId(file).getOrElse("")}"""")
       })
-      logFile.appendLines(s""""${textFilename(bundle.last)}",${bundle.length},"${findId(bundle.last).getOrElse("")}",""""")
+      csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${textFilename(bundle.last)}","${findId(bundle.last).getOrElse("")}"""")
     }
 
     val filename = s"${findId(bundle.last)}.tif"
 
     scriptFile.appendLines("")
-    
+
     scriptFile.appendLines(s"""echo "generating $pdfFilename from ${bundle.length} files"""")
+    scriptFile.appendLines(s"""echo "generating $pdfFilename from ${bundle.length} files" >> ${conf.configName}_bundle_pdfs.log""")
 
     scriptFile.appendLines(s"""cd "${bundle.head.pathAsString.split("/").dropRight(1).mkString("/")}"""")
 
@@ -142,7 +145,7 @@ object BundlePdfs extends App {
     scriptFile.appendLines(s""" "$outputFolder/$tifFilename"""")
 
     scriptFile.appendLines(s"""tiff2pdf "$outputFolder/$tifFilename" > "$outputFolder/$pdfFilename"""")
-    
+
     scriptFile.appendLines("")
   }
 
