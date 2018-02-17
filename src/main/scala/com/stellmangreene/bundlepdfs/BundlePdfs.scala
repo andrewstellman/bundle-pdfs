@@ -13,7 +13,7 @@ object BundlePdfs extends App {
 
   val folders = conf.folders.map(conf.parentFolder / _)
 
-  val timestamp = new SimpleDateFormat("yy-mm-dd_hh-mm-ss").format(Calendar.getInstance.getTime)
+  val timestamp = new SimpleDateFormat("yy-MM-dd_HH-mm-ss").format(Calendar.getInstance.getTime)
 
   if (!conf.outputFolder.exists) {
     conf.outputFolder.createDirectory
@@ -55,6 +55,15 @@ object BundlePdfs extends App {
     else Seq()
 
   val ids: Map[String, Boolean] = readLinesFromFile(conf.idsFile).map(id => id -> true).toMap
+
+  val correctedIds: Map[String, String] = readLinesFromFile(conf.correctedIdsFile)
+    .map(line => line.split(","))
+    .map(line => line.head -> line.last)
+    .toMap
+
+  val correctedStartPages: Seq[String] = readLinesFromFile(conf.correctedStartPagesFile)
+
+  val falsePositiveStartPages: Seq[String] = readLinesFromFile(conf.falsePositiveStartPagesFile)
 
   val fuzzyScore = new FuzzyScore(Locale.ENGLISH)
 
@@ -123,15 +132,15 @@ object BundlePdfs extends App {
 
     def textFilename(f: File) = f.pathAsString.split("/").takeRight(2).mkString("/")
     if (bundle.size == 1) {
-      csvFile.appendLines(s""""$pdfFilename",1,"${textFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
 
     } else {
-      csvFile.appendLines(s""""$pdfFilename",1,"${textFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
       bundle.drop(1).dropRight(1).zipWithIndex.foreach(e => {
         val (file, index) = e
-        csvFile.appendLines(s""""$pdfFilename",${index + 1},"${textFilename(file)}","${findId(file).getOrElse("")}"""")
+        csvFile.appendLines(s""""$pdfFilename",${index + 2},"${getTifFilename(file)}","${findId(file).getOrElse("")}"""")
       })
-      csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${textFilename(bundle.last)}","${findId(bundle.last).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${getTifFilename(bundle.last)}","${findId(bundle.last).getOrElse("")}"""")
     }
 
     val filename = s"${findId(bundle.last)}.tif"
@@ -165,8 +174,12 @@ object BundlePdfs extends App {
    * finds an ID in a file if it exists
    */
   def findId(file: File): Option[String] = {
-    val words = file.contentAsString.split("\\s+")
-    words.find(ids.isDefinedAt)
+    val correctedId = correctedIds.find(_._1 == getTifFilename(file)).map(_._2)
+    if (correctedId.isDefined) correctedId
+    else {
+      val words = file.contentAsString.split("\\s+")
+      words.find(ids.isDefinedAt)
+    }
   }
 
   /**
@@ -179,17 +192,27 @@ object BundlePdfs extends App {
     })
   }
 
+  /*
+   * keep track of the previous file's hasCorrectedId -- if it did have a corrected ID,
+   * then the next file is a start page
+   */
+  var hasCorrectedId: Boolean = false
+
   /**
    * check if a file contains the first page
    */
   def isFirstPage(file: better.files.File, fileContents: String): Boolean = {
+    val isCorrectedStartPage = correctedStartPages.contains(getTifFilename(file))
+    val previousPageHadCorrectedId = hasCorrectedId
+    hasCorrectedId = correctedIds.isDefinedAt(getTifFilename(file))
+
     val firstPageScores = firstPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
     val firstPageAverage = average(firstPageScores)
 
     val skipPageScores = skipPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
     val skipPageAverage = average(skipPageScores)
 
-    firstPageAverage > conf.firstPageScore
+    isCorrectedStartPage || (firstPageAverage > conf.firstPageScore)
   }
 
   /** Test a file and print its scores */

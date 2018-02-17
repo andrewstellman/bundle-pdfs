@@ -76,6 +76,12 @@ an ID list file as the filename
   }
   
   val idsFile = config.getString("ids-file")
+  
+  val correctedIdsFile = config.getString("corrected-ids-file")
+  
+  val correctedStartPagesFile = config.getString("corrected-start-pages-file")
+  
+  val falsePositiveStartPagesFile = config.getString("false-positive-start-pages-file")
 
   val parentFolder = config.getString("parent-folder").toFile
   
