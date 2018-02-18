@@ -188,7 +188,7 @@ object BundlePdfs extends App {
   def generateFilename(file: File): String = {
     findId(file).getOrElse({
       unknownIdCount += 1
-      s"unknown_id_$unknownIdCount"
+      f"unknown_id_$unknownIdCount%04d"
     })
   }
 
