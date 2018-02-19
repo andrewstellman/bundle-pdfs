@@ -99,6 +99,8 @@ object BundlePdfs extends App {
 
     var currentBundle = Seq[File]()
 
+    var bundleLastPageFile = files.head 
+    
     files.foreach(file => {
       val fileContents = file.contentAsString
 
@@ -106,10 +108,12 @@ object BundlePdfs extends App {
         testFile(file, fileContents)
 
       } else {
+        
+        val probableFirstPage = ((currentBundle.size + 1) == conf.expectedBundleLength)
 
-        if (isFirstPage(file, fileContents)) {
+        if (isFirstPage(file, probableFirstPage, fileContents)) {
           if (!currentBundle.isEmpty) {
-            generateBundle(currentBundle)
+            generateBundle(currentBundle, bundleLastPageFile)
           }
 
           currentBundle = Seq(file)
@@ -119,31 +123,32 @@ object BundlePdfs extends App {
 
         }
 
+        bundleLastPageFile = file
       }
     })
   }
 
   /** generate a bundle */
-  def generateBundle(bundle: Seq[File]) = {
+  def generateBundle(bundle: Seq[File], bundleLastPageFile: File) = {
 
-    val filenameBase = generateFilename(bundle.last)
+    val filenameBase = generateFilename(bundle.last, bundleLastPageFile)
     val pdfFilename = s"${filenameBase}.pdf"
     val tifFilename = s"${filenameBase}.tif"
 
     def textFilename(f: File) = f.pathAsString.split("/").takeRight(2).mkString("/")
     if (bundle.size == 1) {
-      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head, bundleLastPageFile).getOrElse("")}"""")
 
     } else {
-      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",1,"${getTifFilename(bundle.head)}","${findId(bundle.head, bundleLastPageFile).getOrElse("")}"""")
       bundle.drop(1).dropRight(1).zipWithIndex.foreach(e => {
         val (file, index) = e
-        csvFile.appendLines(s""""$pdfFilename",${index + 2},"${getTifFilename(file)}","${findId(file).getOrElse("")}"""")
+        csvFile.appendLines(s""""$pdfFilename",${index + 2},"${getTifFilename(file)}","${findId(file, bundleLastPageFile).getOrElse("")}"""")
       })
-      csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${getTifFilename(bundle.last)}","${findId(bundle.last).getOrElse("")}"""")
+      csvFile.appendLines(s""""$pdfFilename",${bundle.length},"${getTifFilename(bundle.last)}","${findId(bundle.last, bundleLastPageFile).getOrElse("")}"""")
     }
 
-    val filename = s"${findId(bundle.last)}.tif"
+    val filename = s"${findId(bundle.last, bundleLastPageFile)}.tif"
 
     scriptFile.appendLines("")
 
@@ -173,20 +178,26 @@ object BundlePdfs extends App {
   /**
    * finds an ID in a file if it exists
    */
-  def findId(file: File): Option[String] = {
+  def findId(file: File, bundleLastPageFile: File): Option[String] = {
+    val probableLastPage = (file == bundleLastPageFile)
     val correctedId = correctedIds.find(_._1 == getTifFilename(file)).map(_._2)
     if (correctedId.isDefined) correctedId
     else {
-      val words = file.contentAsString.split("\\s+")
-      words.find(ids.isDefinedAt)
+      val words = file.contentAsString.split(conf.idsSplitRegex)
+      val containsId = words.find(ids.isDefinedAt)
+      if (containsId.isDefined || !probableLastPage) containsId
+      else {
+        // for performance reasons, only do a full-text search of the page contents for probable last pages that didn't find an ID using the regex split
+        ids.find(e => file.contentAsString.contains(e._1)).map(_._1)        
+      }
     }
   }
 
   /**
    * returns a filename based on an ID in a file, or unknown_id_* if no ID found
    */
-  def generateFilename(file: File): String = {
-    findId(file).getOrElse({
+  def generateFilename(file: File, bundleLastPageFile: File): String = {
+    findId(file, bundleLastPageFile).getOrElse({
       unknownIdCount += 1
       f"unknown_id_$unknownIdCount%04d"
     })
@@ -201,13 +212,16 @@ object BundlePdfs extends App {
   /**
    * check if a file contains the first page
    */
-  def isFirstPage(file: better.files.File, fileContents: String): Boolean = {
+  def isFirstPage(file: better.files.File, probableFirstPage: Boolean, fileContents: String): Boolean = {
     val isCorrectedStartPage = correctedStartPages.contains(getTifFilename(file))
     val previousPageHadCorrectedId = hasCorrectedId
     hasCorrectedId = correctedIds.isDefinedAt(getTifFilename(file))
 
+    val multiplier =
+      if (probableFirstPage) conf.expectedLengthFirstPageMultiplier
+      else 1
     val firstPageScores = firstPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
-    val firstPageAverage = average(firstPageScores)
+    val firstPageAverage = average(firstPageScores) * multiplier
 
     val skipPageScores = skipPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
     val skipPageAverage = average(skipPageScores)

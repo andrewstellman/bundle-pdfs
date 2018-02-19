@@ -58,6 +58,9 @@ an ID list file as the filename
 
   val firstPageLinesFile = config.getString("first-page-lines-file")
   val firstPageScore = config.getInt("first-page-score")
+  val expectedBundleLength = config.getInt("expected-bundle-length")
+  val expectedLengthFirstPageMultiplier = config.getInt("expected-length-first-page-multiplier")
+ 
   val testFirstPageLines = args.contains("--test-first-page-scores")
 
   val (skipPageLinesFile, skipPageScore) =
@@ -76,6 +79,8 @@ an ID list file as the filename
   }
   
   val idsFile = config.getString("ids-file")
+  
+  val idsSplitRegex = config.getString("ids-split-regex")
   
   val correctedIdsFile = config.getString("corrected-ids-file")
   
