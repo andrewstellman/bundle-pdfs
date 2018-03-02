@@ -99,8 +99,8 @@ object BundlePdfs extends App {
 
     var currentBundle = Seq[File]()
 
-    var bundleLastPageFile = files.head 
-    
+    var bundleLastPageFile = files.head
+
     files.foreach(file => {
       val fileContents = file.contentAsString
 
@@ -108,7 +108,7 @@ object BundlePdfs extends App {
         testFile(file, fileContents)
 
       } else {
-        
+
         val probableFirstPage = ((currentBundle.size + 1) == conf.expectedBundleLength)
 
         if (isFirstPage(file, probableFirstPage, fileContents)) {
@@ -126,6 +126,11 @@ object BundlePdfs extends App {
         bundleLastPageFile = file
       }
     })
+
+    // Generate the last bundle
+    if (!currentBundle.isEmpty) {
+      generateBundle(currentBundle, bundleLastPageFile)
+    }
   }
 
   /** generate a bundle */
@@ -188,7 +193,7 @@ object BundlePdfs extends App {
       if (containsId.isDefined || !probableLastPage) containsId
       else {
         // for performance reasons, only do a full-text search of the page contents for probable last pages that didn't find an ID using the regex split
-        ids.find(e => file.contentAsString.contains(e._1)).map(_._1)        
+        ids.find(e => file.contentAsString.contains(e._1)).map(_._1)
       }
     }
   }
@@ -213,20 +218,24 @@ object BundlePdfs extends App {
    * check if a file contains the first page
    */
   def isFirstPage(file: better.files.File, probableFirstPage: Boolean, fileContents: String): Boolean = {
-    val isCorrectedStartPage = correctedStartPages.contains(getTifFilename(file))
-    val previousPageHadCorrectedId = hasCorrectedId
-    hasCorrectedId = correctedIds.isDefinedAt(getTifFilename(file))
+    val isFalsePositiveStartPage = falsePositiveStartPages.contains(getTifFilename(file))
+    if (isFalsePositiveStartPage) false
+    else {
+      val isCorrectedStartPage = correctedStartPages.contains(getTifFilename(file))
+      val previousPageHadCorrectedId = hasCorrectedId
+      hasCorrectedId = correctedIds.isDefinedAt(getTifFilename(file))
 
-    val multiplier =
-      if (probableFirstPage) conf.expectedLengthFirstPageMultiplier
-      else 1
-    val firstPageScores = firstPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
-    val firstPageAverage = average(firstPageScores) * multiplier
+      val multiplier =
+        if (probableFirstPage) conf.expectedLengthFirstPageMultiplier
+        else 1
+      val firstPageScores = firstPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
+      val firstPageAverage = average(firstPageScores) * multiplier
 
-    val skipPageScores = skipPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
-    val skipPageAverage = average(skipPageScores)
+      val skipPageScores = skipPageLines.map(fuzzyScore.fuzzyScore(fileContents, _))
+      val skipPageAverage = average(skipPageScores)
 
-    isCorrectedStartPage || (firstPageAverage > conf.firstPageScore)
+      isCorrectedStartPage || (firstPageAverage > conf.firstPageScore)
+    }
   }
 
   /** Test a file and print its scores */
